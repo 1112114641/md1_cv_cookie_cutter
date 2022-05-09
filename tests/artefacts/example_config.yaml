@@ -1,0 +1,8 @@
+data:
+  data_dir: /artefacts/data
+labels:
+  label_dir: 64
+  multi_label: false
+augment_params:
+  random_seed: 42
+  flip_updown: true
