@@ -9,20 +9,85 @@ dl = DataLoader()
 ```
 """
 import os
+import logging
 import pandas as pd
+import tensorflow as tf
+from typing import Tuple
 from abstracts import DataLoaderABC
 
-# import tensorflow as tf
+# import joblib
+# import numpy as np
+# from sklearn.preprocessing import OneHotEncoder
+
+BUFFER_SIZE = 10000
+BATCH_SIZE = 64
+AUTOTUNE = tf.data.AUTOTUNE
 
 
 class DataLoader(DataLoaderABC):
     def __init__(self, config, **kwargs) -> None:
         super().__init__(config)
+        self.labels = self.read_labels(self.config.labels["label_dir"])
 
-    def data_generator(self) -> None:
-        pass
+    def data_generator(self) -> Tuple[tf.data.Dataset]:
+        """Create data ready for training."""
+        # image_filenames = [
+        # os.path.join(dp, f) for dp, dn, filenames in os.walk(path) for f in filenames
+        # if f.endswith("jpg") or f.endswith("png")
+        # ]
+        image_filenames = self.labels.filename
+        filenames_ds = tf.data.Dataset.from_tensor_slices(image_filenames)
 
-    def augment_data(self) -> None:
+        def _parse_image(filename: str) -> tf.Tensor:
+            """
+            Read in image data. Normalisation to be performed by the model at train/
+            inference run-time.
+            """
+            try:
+                image = tf.io.read_file(self.config.data["data_dir"] + filename)
+            except FileNotFoundError:
+                logging.info(f"{filename} not found in {self.config.data['data_dir']}.")
+            image = tf.io.decode_image(image, channels=3)
+            # image = tf.image.rgb_to_grayscale(image)
+            img_size = self.config.data["img_height"]
+            image = tf.image.resize(image, size=[img_size, img_size])
+            image = tf.image.convert_image_dtype(image, tf.uint8)
+            # image = tf.py_function(func=augment_images, inp=[image], Tout=tf.uint8)
+            return image
+
+        images_ds = filenames_ds.map(
+            _parse_image, num_parallel_calls=tf.data.experimental.AUTOTUNE
+        )
+        # FIXME: check one-hot requirement for multi label?
+        labels_ds = tf.data.Dataset.from_tensor_slices(self.labels.labels)
+        ds = tf.data.Dataset.zip((images_ds, labels_ds))
+
+        def configure_for_performance(ds) -> Tuple[tf.data.Dataset, tf.data.Dataset]:
+            """
+            Create train/val/test split, augment train, and optimise for fast data
+            loading.
+            """
+            val_split = self.config.labels["train_test_split"]
+            test_split = self.config.labels["val_test_subsplits"]
+            no_of_images = self.labels.shape[0]
+            ds_valid = ds.take(int(val_split * no_of_images))
+            ds_valid = ds_valid.batch(BATCH_SIZE)
+            ds_valid = ds_valid.prefetch(buffer_size=AUTOTUNE)
+            ds_test = ds.skip(int(val_split * no_of_images))
+            ds_test = ds_test.take(int(test_split * no_of_images))
+            ds_test = ds_test.batch(BATCH_SIZE)
+            ds_train = ds.skip(
+                int(val_split * no_of_images) + int(test_split * no_of_images)
+            )
+            ds_train = ds_train.shuffle(buffer_size=10000)
+            ds_train = ds_train.batch(BATCH_SIZE).repeat()
+            ds_train = ds_train.prefetch(buffer_size=AUTOTUNE)
+            return ds_train, ds_valid, ds_test
+
+        ds_train, ds_valid, ds_test = configure_for_performance(ds)
+        return ds_train, ds_valid, ds_test
+
+    def persist_data_set(self) -> None:
         """
         Create augmented data given a certain random seed, and save to
         `DataLoader.config.data.augment_dir`.
@@ -78,3 +143,11 @@ class DataLoader(DataLoaderABC):
                 )
             )
         return labels_df
+
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        filename="logs/data_loader.log",
+        level=logging.INFO,
+        format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
+    )
