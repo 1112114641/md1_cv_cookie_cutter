@@ -15,6 +15,7 @@ import pandas as pd
 import tensorflow as tf
 from typing import Tuple
 from abstracts import DataLoaderABC
+from sklearn.model_selection import train_test_split
 from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
 
 # import joblib
@@ -30,6 +31,7 @@ class DataLoader(DataLoaderABC):
     def __init__(self, config, **kwargs) -> None:
         super().__init__(config)
         self.labels = self.read_labels(self.config.labels["label_dir"])
+        self._train_test_split_labels()
 
     def data_generator(self, *args) -> Tuple[tf.data.Dataset]:
         """Create data ready for training."""
@@ -89,7 +91,7 @@ class DataLoader(DataLoaderABC):
         ds_train, ds_valid, ds_test = configure_for_performance(ds)
         return ds_train, ds_valid, ds_test
 
-    def _split(
+    def _train_test_split_labels(
         self,
     ) -> Tuple[pd.DataFrame]:
         """
@@ -99,7 +101,6 @@ class DataLoader(DataLoaderABC):
         Caution: does not filter for duplicate files in the file list!
 
         c.f. https://github.com/trent-b/iterative-stratification
-        # FIXME: multi-label input (vis a vis self.read_labels())
         # FIXME: if labels elements are not list-like, extend dim to list like for stratifier
         """
         mlsss_train_valtest = MultilabelStratifiedShuffleSplit(
@@ -109,34 +110,40 @@ class DataLoader(DataLoaderABC):
             random_state=self.config.labels["random_seed"],
         )
 
-        Y = self.labels.labels  # labels to be stratified,
         try:
-            test = self.labels.labels[0] * 1
-        except IndexError:
-            # FIXME
-            test = 2
-            test = test
+            Y = self.labels.labels  # labels to be stratified,
+            X = np.zeros(self.labels.shape[0])  # placeholder
 
-        X = np.zeros(self.labels.shape[0])  # placeholder
-
-        train_indices, valid_indices = next(mlsss_train_valtest.split(X, Y))
-        self.train_labels = self.labels[train_indices]
-        self.valid_labels = self.labels[valid_indices]
-
-        if self.config.labels["val_test_subsplits"] > 0:
-            mlsss_val_test = MultilabelStratifiedShuffleSplit(
-                n_splits=2,
-                train_size=(1 - self.config.labels["val_test_subsplits"]),
-                test_size=self.config.labels["val_test_subsplits"],
-                random_state=self.config.labels["random_seed"],
-            )
-            valid_indices, test_indices = next(
-                mlsss_val_test.split(
-                    np.zeros(self.valid_labels.shape[0]), self.valid_labels.labels
-                )
-            )
+            train_indices, valid_indices = next(mlsss_train_valtest.split(X, Y))
+            self.train_labels = self.labels[train_indices]
             self.valid_labels = self.labels[valid_indices]
-            self.test_labels = self.labels[test_indices]
+
+            if self.config.labels["val_test_subsplits"] > 0:
+                mlsss_val_test = MultilabelStratifiedShuffleSplit(
+                    n_splits=2,
+                    train_size=(1 - self.config.labels["val_test_subsplits"]),
+                    test_size=self.config.labels["val_test_subsplits"],
+                    random_state=self.config.labels["random_seed"],
+                )
+                valid_indices, test_indices = next(
+                    mlsss_val_test.split(
+                        np.zeros(self.valid_labels.shape[0]), self.valid_labels.labels
+                    )
+                )
+                self.valid_labels = self.labels[valid_indices]
+                self.test_labels = self.labels[test_indices]
+        except IndexError:
+            X_train, X_valid, y_train, y_valid = train_test_split(
+                np.zeros((self.labels.shape[0],)),
+                self.labels.labels,
+                random_state=self.config.labels["random_seed"],
+                test_size=self.config.labels["train_test_split"],
+                train_size=(1 - self.config.labels["train_test_split"]),
+                stratify=self.labels.labels,
+            )
+            self.train_labels = self.labels[y_train.index]
+            self.valid_labels = self.labels[y_valid.index]
+
         return (
             self.train_labels,
             self.valid_labels,
@@ -175,7 +182,7 @@ class DataLoader(DataLoaderABC):
         """
         label_dir = label_dir if label_dir else self.label_dir
 
-        if os.path.isile(label_dir) & label_dir.endswith(".csv"):
+        if os.path.isile(label_dir):
             label_dir = label_dir if label_dir else self.label_dir
             labels_df = pd.read_csv(label_dir).fillna("")
 
@@ -212,26 +219,27 @@ class DataLoader(DataLoaderABC):
                         # grab every 4th element, add that one and following four to a list
                         lambda x: [
                             x[i : i + 4]
-                            for i in range(0, len(x), 4)
                             if (x[i] != "")
                             & (x[i + 1] != "")
                             & (x[i + 2] != "")
                             & (x[i + 3] != "")
+                            else list()
+                            for i in range(0, len(x), 4)
                         ]
                     )
                     # filter out empty bbox elements
                     labels_tmp["bbox_hwxy"] = labels_tmp["bbox_hwxy"].apply(
-                        lambda x: [i for i in x if not isinstance(i[0], int)]
+                        lambda x: [i for i in x if i != ""]
                     )
 
                     # sanity check to remove empty labels/bbox:
-                    tmp_screen = labels_tmp["labels"].apply(
-                        lambda x: x if x[0] != "" else ""
-                    )
-                    faulty = tmp_screen[tmp_screen == ""].index.values
-                    assert len(faulty) == 0, "Faulty label data. Check rows {}.".format(
-                        faulty
-                    )
+                    faulty = labels_tmp[
+                        labels_tmp["labels"].map(lambda x: len(x)) == 0
+                    ].index.values
+                    assert (
+                        len(faulty) == 0
+                    ), "Faulty label data/labels missing. Check rows {}.".format(faulty)
+                    # same to ensure each label has a bbox
                     tmp_screen_labels = labels_tmp["labels"].apply(lambda x: len(x))
                     tmp_screen_bbox = labels_tmp["bbox_hwxy"].apply(lambda x: len(x))
                     abc = np.where(
@@ -244,40 +252,21 @@ class DataLoader(DataLoaderABC):
                     ), "Not enough bounding boxes/labels in rows: {}".format(
                         abc[abc != 0]
                     )
+                    # and filter out empty rows w/o labels
                     return labels_tmp
 
                 labels_df = _reshape_label_df_for_object_detect(labels=labels_df)
             assert ("filename" in labels_df.columns) & (
                 "labels" in labels_df.columns
             ), "Follow example label file structure!"
-
-        elif os.path.isile(label_dir) & label_dir.endswith(".txt"):
-            labels = []
-            with open(label_dir, "r") as banana:
-                for counter, line in enumerate(banana):
-                    items = line.rstrip().split(
-                        ","
-                    )  # individual items sans end of line
-                    if counter >= 1:
-                        labels.append([*items])  # split into file name, list of labels
-                    else:
-                        columns = items
-            labels_df = pd.DataFrame(labels, columns=columns)
-            if (labels_df.shape[1] >= 6) & ("h1" in labels_df.columns):
-                labels_df = _reshape_label_df_for_object_detect(labels=labels_df)
-                labels_df.columns = [
-                    "filename",
-                    "labels",
-                    "bbox_hwxy",
-                ]
-            else:
-                labels_df.columns = [
-                    "filename",
-                    "labels",
-                ]
         else:
+            logging.info(
+                "label_dir should point to valid label txt/csv-file. Instead got {}.".format(
+                    label_dir
+                )
+            )
             raise ValueError(
-                "label_dir should point to valid label csv-file. Instead got {}.".format(
+                "label_dir should point to valid label txt/csv-file. Instead got {}.".format(
                     label_dir
                 )
             )
