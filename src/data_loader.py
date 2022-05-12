@@ -42,9 +42,7 @@ class DataLoader(DataLoaderABC):
         image_filenames = self.labels.filename
         filenames_ds = tf.data.Dataset.from_tensor_slices(image_filenames)
 
-        images_ds = filenames_ds.map(
-            self._parse_image, num_parallel_calls=tf.data.experimental.AUTOTUNE
-        )
+        images_ds = filenames_ds.map(self._parse_image, num_parallel_calls=AUTOTUNE)
 
         labels_ds = tf.data.Dataset.from_tensor_slices(self.labels.labels)
         ds = tf.data.Dataset.zip((images_ds, labels_ds))
@@ -56,11 +54,8 @@ class DataLoader(DataLoaderABC):
 
         # split data
         ds_valid = ds.take(int(val_split * no_of_images))
-        ds_valid = ds_valid.batch(BATCH_SIZE)
-        ds_valid = ds_valid.prefetch(buffer_size=AUTOTUNE)
         ds_test = ds.skip(int(val_split * no_of_images))
         ds_test = ds_test.take(int(test_split * no_of_images))
-        ds_test = ds_test.batch(BATCH_SIZE)
         ds_train = ds.skip(
             int(val_split * no_of_images) + int(test_split * no_of_images)
         )
@@ -70,7 +65,9 @@ class DataLoader(DataLoaderABC):
             # FIXME: fill in logic here
             return ds
 
-        ds_train, ds_valid, ds_test = self._configure_for_performance(ds)
+        ds_train, ds_valid, ds_test = self._configure_for_performance(
+            ds_valid, ds_test, ds_train
+        )
         return ds_train, ds_valid, ds_test
 
     def persist_data_set(self) -> None:
