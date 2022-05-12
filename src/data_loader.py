@@ -182,11 +182,13 @@ class DataLoader(DataLoaderABC):
             # fix for object detection bboxes
             if labels_df.shape[1] >= 6:
 
-                def _reshape_label_df_forobject_detect(
+                def _reshape_label_df_for_object_detect(
                     labels: pd.DateFrame,
                 ) -> pd.DataFrame:
                     max_objects = (labels.shape[1] - 1) / 5
                     labels_tmp = labels["filename"]
+
+                    # determine label / bbox col positions
                     label_cols = [n for n in range(max_objects) if ((n - 1) % 5 == 0)]
                     bbox_cols = [
                         n
@@ -198,11 +200,13 @@ class DataLoader(DataLoaderABC):
                             | ((n - 5) % 5 == 0) & (n > 2)
                         )
                     ]
+                    # all labels per row added to list
                     labels_tmp["labels"] = labels.iloc[:, label_cols].values.tolist()
-                    # filter empty labels
+                    # filter out empty labels
                     labels_tmp["labels"] = labels_tmp["labels"].apply(
                         lambda x: [i for i in x if i != ""]
                     )
+                    # create one column of all bounding box hwxy values
                     labels_tmp["bbox_hwxy"] = labels.iloc[:, bbox_cols].values.tolist()
                     labels_tmp["bbox_hwxy"] = labels_tmp["bbox_hwxy"].apply(
                         # grab every 4th element, add that one and following four to a list
@@ -215,8 +219,9 @@ class DataLoader(DataLoaderABC):
                             & (x[i + 3] != "")
                         ]
                     )
+                    # filter out empty bbox elements
                     labels_tmp["bbox_hwxy"] = labels_tmp["bbox_hwxy"].apply(
-                        lambda x: [i for i in x[0] if not isinstance(i[0], int)]
+                        lambda x: [i for i in x if not isinstance(i[0], int)]
                     )
 
                     # sanity check to remove empty labels/bbox:
@@ -227,11 +232,21 @@ class DataLoader(DataLoaderABC):
                     assert len(faulty) == 0, "Faulty label data. Check rows {}.".format(
                         faulty
                     )
-
-                    assert len()
+                    tmp_screen_labels = labels_tmp["labels"].apply(lambda x: len(x))
+                    tmp_screen_bbox = labels_tmp["bbox_hwxy"].apply(lambda x: len(x))
+                    abc = np.where(
+                        tmp_screen_labels == tmp_screen_bbox,
+                        np.zeros((tmp_screen_bbox.shape[0],)),
+                        np.zeros((tmp_screen_bbox.shape[0],)),
+                    )
+                    assert (
+                        abc.sum() == 0
+                    ), "Not enough bounding boxes/labels in rows: {}".format(
+                        abc[abc != 0]
+                    )
                     return labels_tmp
 
-                labels_df = _reshape_label_df_forobject_detect(labels=labels_df)
+                labels_df = _reshape_label_df_for_object_detect(labels=labels_df)
             assert ("filename" in labels_df.columns) & (
                 "labels" in labels_df.columns
             ), "Follow example label file structure!"
@@ -248,8 +263,8 @@ class DataLoader(DataLoaderABC):
                     else:
                         columns = items
             labels_df = pd.DataFrame(labels, columns=columns)
-            if labels_df.shape[1] >= 6:
-                labels_df = _reshape_label_df_forobject_detect(labels=labels_df)
+            if (labels_df.shape[1] >= 6) & ("h1" in labels_df.columns):
+                labels_df = _reshape_label_df_for_object_detect(labels=labels_df)
                 labels_df.columns = [
                     "filename",
                     "labels",
