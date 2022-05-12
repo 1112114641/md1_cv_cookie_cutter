@@ -101,7 +101,6 @@ class DataLoader(DataLoaderABC):
         Caution: does not filter for duplicate files in the file list!
 
         c.f. https://github.com/trent-b/iterative-stratification
-        # FIXME: if labels elements are not list-like, extend dim to list like for stratifier
         """
         mlsss_train_valtest = MultilabelStratifiedShuffleSplit(
             n_splits=2,
@@ -113,25 +112,26 @@ class DataLoader(DataLoaderABC):
         try:
             Y = self.labels.labels  # labels to be stratified,
             X = np.zeros(self.labels.shape[0])  # placeholder
-
-            train_indices, valid_indices = next(mlsss_train_valtest.split(X, Y))
-            self.train_labels = self.labels[train_indices]
-            self.valid_labels = self.labels[valid_indices]
-
-            if self.config.labels["val_test_subsplits"] > 0:
-                mlsss_val_test = MultilabelStratifiedShuffleSplit(
-                    n_splits=2,
-                    train_size=(1 - self.config.labels["val_test_subsplits"]),
-                    test_size=self.config.labels["val_test_subsplits"],
-                    random_state=self.config.labels["random_seed"],
-                )
-                valid_indices, test_indices = next(
-                    mlsss_val_test.split(
-                        np.zeros(self.valid_labels.shape[0]), self.valid_labels.labels
-                    )
-                )
+            if self.config.labels["train_test_split"] > 0:
+                train_indices, valid_indices = next(mlsss_train_valtest.split(X, Y))
+                self.train_labels = self.labels[train_indices]
                 self.valid_labels = self.labels[valid_indices]
-                self.test_labels = self.labels[test_indices]
+
+                if self.config.labels["val_test_subsplits"] > 0:
+                    mlsss_val_test = MultilabelStratifiedShuffleSplit(
+                        n_splits=2,
+                        train_size=(1 - self.config.labels["val_test_subsplits"]),
+                        test_size=self.config.labels["val_test_subsplits"],
+                        random_state=self.config.labels["random_seed"],
+                    )
+                    valid_indices, test_indices = next(
+                        mlsss_val_test.split(
+                            np.zeros(self.valid_labels.shape[0]),
+                            self.valid_labels.labels,
+                        )
+                    )
+                    self.valid_labels = self.labels[valid_indices]
+                    self.test_labels = self.labels[test_indices]
         except IndexError:
             X_train, X_valid, y_train, y_valid = train_test_split(
                 np.zeros((self.labels.shape[0],)),
@@ -143,6 +143,17 @@ class DataLoader(DataLoaderABC):
             )
             self.train_labels = self.labels[y_train.index]
             self.valid_labels = self.labels[y_valid.index]
+            if self.config.labels["val_test_subsplits"] > 0:
+                X_valid, X_test, y_valid, y_test = train_test_split(
+                    np.zeros(self.valid_labels.shape[0]),
+                    self.valid_labels.labels,
+                    random_state=self.config.labels["random_seed"],
+                    test_size=self.config.labels["val_test_subsplits"],
+                    train_size=(1 - self.config.labels["val_test_subsplits"]),
+                    stratify=self.labels.labels,
+                )
+                self.valid_labels = self.labels[y_valid.index]
+                self.test_labels = self.labels[y_test.index]
 
         return (
             self.train_labels,
