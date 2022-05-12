@@ -166,37 +166,100 @@ class DataLoader(DataLoaderABC):
          filename, label1, label2, label3, ...
         For object detection the format should be:
          filename, label1, h1, w1, x1, y1, label2, h2, w2, x2, y2, ...
-
-        # FIXME: object detection bounding boxes
+        Both txt/csv files are expected to have these right header structures.
 
           Returns:
             pd.DataFrame: filenames, labels (and bounding boxes) in the forma split up
             into columns into columns like:
-            fname:str, labels:List[str], bbox1_hwxy:List[int], bbox2_hwxy:List[int], ...
+            fname:str, labels:List[str], bbox_hwxy:List[List[int,int,int,int]]
         """
         label_dir = label_dir if label_dir else self.label_dir
 
         if os.path.isile(label_dir) & label_dir.endswith(".csv"):
             label_dir = label_dir if label_dir else self.label_dir
-            labels_df = pd.read_csv(label_dir)
+            labels_df = pd.read_csv(label_dir).fillna("")
+
+            # fix for object detection bboxes
+            if labels_df.shape[1] >= 6:
+
+                def _reshape_label_df_forobject_detect(
+                    labels: pd.DateFrame,
+                ) -> pd.DataFrame:
+                    max_objects = (labels.shape[1] - 1) / 5
+                    labels_tmp = labels["filename"]
+                    label_cols = [n for n in range(max_objects) if ((n - 1) % 5 == 0)]
+                    bbox_cols = [
+                        n
+                        for n in range(max_objects)
+                        if (
+                            ((n - 2) % 5 == 0)
+                            | ((n - 3) % 5 == 0)
+                            | ((n - 4) % 5 == 0)
+                            | ((n - 5) % 5 == 0) & (n > 2)
+                        )
+                    ]
+                    labels_tmp["labels"] = labels.iloc[:, label_cols].values.tolist()
+                    # filter empty labels
+                    labels_tmp["labels"] = labels_tmp["labels"].apply(
+                        lambda x: [i for i in x if i != ""]
+                    )
+                    labels_tmp["bbox_hwxy"] = labels.iloc[:, bbox_cols].values.tolist()
+                    labels_tmp["bbox_hwxy"] = labels_tmp["bbox_hwxy"].apply(
+                        # grab every 4th element, add that one and following four to a list
+                        lambda x: [
+                            x[i : i + 4]
+                            for i in range(0, len(x), 4)
+                            if (x[i] != "")
+                            & (x[i + 1] != "")
+                            & (x[i + 2] != "")
+                            & (x[i + 3] != "")
+                        ]
+                    )
+                    labels_tmp["bbox_hwxy"] = labels_tmp["bbox_hwxy"].apply(
+                        lambda x: [i for i in x[0] if not isinstance(i[0], int)]
+                    )
+
+                    # sanity check to remove empty labels/bbox:
+                    tmp_screen = labels_tmp["labels"].apply(
+                        lambda x: x if x[0] != "" else ""
+                    )
+                    faulty = tmp_screen[tmp_screen == ""].index.values
+                    assert len(faulty) == 0, "Faulty label data. Check rows {}.".format(
+                        faulty
+                    )
+
+                    assert len()
+                    return labels_tmp
+
+                labels_df = _reshape_label_df_forobject_detect(labels=labels_df)
             assert ("filename" in labels_df.columns) & (
                 "labels" in labels_df.columns
-            ), "Follow example label file structure."
+            ), "Follow example label file structure!"
 
         elif os.path.isile(label_dir) & label_dir.endswith(".txt"):
             labels = []
             with open(label_dir, "r") as banana:
-                for line in banana:
+                for counter, line in enumerate(banana):
                     items = line.rstrip().split(
                         ","
                     )  # individual items sans end of line
-                    labels.append(
-                        [items[0], items[1:]]
-                    )  # split into file name, list of labels
-            labels_df = pd.DataFrame(
-                labels,
-            )
-            labels_df.columns = ["filename", "labels"]
+                    if counter >= 1:
+                        labels.append([*items])  # split into file name, list of labels
+                    else:
+                        columns = items
+            labels_df = pd.DataFrame(labels, columns=columns)
+            if labels_df.shape[1] >= 6:
+                labels_df = _reshape_label_df_forobject_detect(labels=labels_df)
+                labels_df.columns = [
+                    "filename",
+                    "labels",
+                    "bbox_hwxy",
+                ]
+            else:
+                labels_df.columns = [
+                    "filename",
+                    "labels",
+                ]
         else:
             raise ValueError(
                 "label_dir should point to valid label csv-file. Instead got {}.".format(
