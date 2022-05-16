@@ -17,17 +17,30 @@ from typing import Tuple
 from abstracts import DataLoaderABC
 from sklearn.model_selection import train_test_split
 from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
+from src.augmentations import (
+    random_center_crop,
+    cutmix,
+    mixup,
+    dropout_area,
+)
 
 # import joblib
 # import numpy as np
 # from sklearn.preprocessing import OneHotEncoder
 
-BUFFER_SIZE = 10000
+BUFFER_SIZE = 5000
 BATCH_SIZE = 64
 AUTOTUNE = tf.data.AUTOTUNE
 
 
 class DataLoader(DataLoaderABC):
+    """
+    Data Loader for a tensorflow/image classification setup. Needs to be properly
+    extended to object detection purposes.
+
+    # FIXME: extend to object detection tasks & pytorch
+    """
+
     def __init__(self, config, **kwargs) -> None:
         super().__init__(config)
         self.labels = self.read_labels(self.config.labels["label_dir"])
@@ -39,34 +52,90 @@ class DataLoader(DataLoaderABC):
         # os.path.join(dp, f) for dp, dn, filenames in os.walk(path) for f in filenames
         # if f.endswith("jpg") or f.endswith("png")
         # ]
-        image_filenames = self.labels.filename
-        filenames_ds = tf.data.Dataset.from_tensor_slices(image_filenames)
 
-        images_ds = filenames_ds.map(self._parse_image, num_parallel_calls=AUTOTUNE)
-
-        labels_ds = tf.data.Dataset.from_tensor_slices(self.labels.labels)
-        ds = tf.data.Dataset.zip((images_ds, labels_ds))
-
-        # prep train/val/test split
-        val_split = self.config.labels["train_test_split"]
-        test_split = self.config.labels["val_test_subsplits"]
-        no_of_images = self.labels.shape[0]
-
-        # split data
-        ds_valid = ds.take(int(val_split * no_of_images))
-        ds_test = ds.skip(int(val_split * no_of_images))
-        ds_test = ds_test.take(int(test_split * no_of_images))
-        ds_train = ds.skip(
-            int(val_split * no_of_images) + int(test_split * no_of_images)
+        # load image names and labels
+        # FIXME: fix for object detection
+        filenames_ds_train = tf.data.Dataset.from_tensor_slices(
+            self.train_labels.filename
         )
+        filenames_ds_valid = tf.data.Dataset.from_tensor_slices(
+            self.valid_labels.filename
+        )
+        filenames_ds__test = tf.data.Dataset.from_tensor_slices(
+            self.test_labels.filename
+        )
+        images_ds_train = filenames_ds_train.map(
+            self._parse_image, num_parallel_calls=AUTOTUNE
+        )
+        images_ds_valid = filenames_ds_valid.map(
+            self._parse_image, num_parallel_calls=AUTOTUNE
+        )
+        images_ds__test = filenames_ds__test.map(
+            self._parse_image, num_parallel_calls=AUTOTUNE
+        )
+        labels_ds_train = tf.data.Dataset.from_tensor_slices(self.train_labels.labels)
+        labels_ds_valid = tf.data.Dataset.from_tensor_slices(self.train_labels.labels)
+        labels_ds__test = tf.data.Dataset.from_tensor_slices(self.train_labels.labels)
+
+        ds_train = tf.data.Dataset.zip((images_ds_train, labels_ds_train))
+        ds_valid = tf.data.Dataset.zip((images_ds_valid, labels_ds_valid))
+        ds__test = tf.data.Dataset.zip((images_ds__test, labels_ds__test))
 
         # create augmented train data
-        def _augmented_train_data(ds: tf.data.Dataset) -> tf.data.Dataset:
-            # FIXME: fill in logic here
-            return ds
+        def _augment_simple(self, ds: tf.data.Dataset) -> tf.data.Dataset:
+            (image, label) = ds
+            if self.config.augment_params["brightness"]:
+                image = tf.image.random_brightness(
+                    image, max_delta=0.2, seed=self.config.augment_params["random_seed"]
+                )
+            if self.config.augment_params["flip_updown"]:
+                image = tf.image.random_flip_up_down(  # FIXME: fix for object detection
+                    image, seed=self.config.augment_params["random_seed"]
+                )
+            if self.config.augment_params["flip_leftright"]:
+                image = (
+                    tf.image.random_flip_left_right(  # FIXME: fix for object detection
+                        image, seed=self.config.augment_params["random_seed"]
+                    )
+                )
+            if self.config.augment_params["crop"]:
+                image = random_center_crop(  # FIXME: fix for object detection
+                    image,
+                    offset=self.config.augment_params["crop"],
+                    seed=self.config.augment_params["random_seed"],
+                )
+            if self.config.augment_params["contrast"]:
+                image = tf.image.random_contrast(
+                    image,
+                    lower=0.2,
+                    upper=1.0,
+                    seed=self.config.augment_params["random_seed"],
+                )
+            if self.config.augment_params["quality"]:
+                image = tf.image.random_jpeg_quality(
+                    image,
+                    min_jpeg_quality=80,
+                    max_jpeg_quality=100,
+                    seed=self.config.augment_params["random_seed"],
+                )
+            if self.config.augment_params["saturation"]:
+                image = tf.image.random_saturation(
+                    image,
+                    lower=80,
+                    upper=100,
+                    seed=self.config.augment_params["random_seed"],
+                )
+            if self.config.augment_params["dropout_area"]:
+                image = dropout_area(  # FIXME: fix for object detection
+                    image,
+                    lower=5,
+                    upper=15,
+                    seed=self.config.augment_params["random_seed"],
+                )
+            return image, label
 
         ds_train, ds_valid, ds_test = self._configure_for_performance(
-            ds_valid, ds_test, ds_train
+            valid=ds_valid, test=ds__test, train=ds_train
         )
         return ds_train, ds_valid, ds_test
 
@@ -175,16 +244,39 @@ class DataLoader(DataLoaderABC):
         # image = tf.py_function(func=augment_images, inp=[image], Tout=tf.uint8)
         return image
 
-    def _configure_for_performance(self, ds: tf.data.Dataset) -> tf.data.Dataset:
+    def _augment_complex(
+        self, ds: tf.data.Dataset, ds2: tf.data.Dataset
+    ) -> tf.data.Dataset:
+        if self.config.augment_params["cutmix"]:
+            ds, ds2 = cutmix(  # FIXME: fix for object detection
+                ds, ds2, max_size=30, seed=self.config.augment_params["random_seed"]
+            )
+        if self.config.augment_params["mixup"]:
+            ds, ds2 = mixup(  # FIXME: fix for object detection
+                ds, ds2, seed=self.config.augment_params["random_seed"]
+            )
+        return ds
+
+    def _configure_for_performance(
+        self, train: tf.data.Dataset, valid: tf.data.Dataset, test: tf.data.Dataset
+    ) -> tf.data.Dataset:
         """
         Create train/val/test split, augment train, and optimise for fast data
         loading.
-        FIXME: remove datasplitting and add it explicitly into data_loader
         """
-        ds = ds.shuffle(buffer_size=10000)
-        ds = ds.batch(BATCH_SIZE).repeat()
-        ds = ds.prefetch(buffer_size=AUTOTUNE)
-        return ds
+        train = (
+            train.shuffle(buffer_size=BUFFER_SIZE)
+            .batch(self.config.training["batch_size"])
+            .repeat()
+            .prefetch(buffer_size=AUTOTUNE)
+        )
+        valid = valid.batch(self.config.training["batch_size"]).prefetch(
+            buffer_size=AUTOTUNE
+        )
+        test = test.batch(self.config.training["batch_size"]).prefetch(
+            buffer_size=AUTOTUNE
+        )
+        return train, valid, test
 
     def read_labels(self, label_dir: str = None) -> pd.DataFrame:
         """
