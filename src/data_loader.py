@@ -55,31 +55,24 @@ class DataLoader(DataLoaderABC):
 
         # load image names and labels
         # FIXME: fix for object detection
-        filenames_ds_train = tf.data.Dataset.from_tensor_slices(
-            self.train_labels.filename
-        )
-        filenames_ds_valid = tf.data.Dataset.from_tensor_slices(
-            self.valid_labels.filename
-        )
-        filenames_ds__test = tf.data.Dataset.from_tensor_slices(
-            self.test_labels.filename
-        )
-        images_ds_train = filenames_ds_train.map(
-            self._parse_image, num_parallel_calls=AUTOTUNE
-        )
-        images_ds_valid = filenames_ds_valid.map(
-            self._parse_image, num_parallel_calls=AUTOTUNE
-        )
-        images_ds__test = filenames_ds__test.map(
-            self._parse_image, num_parallel_calls=AUTOTUNE
-        )
-        labels_ds_train = tf.data.Dataset.from_tensor_slices(self.train_labels.labels)
-        labels_ds_valid = tf.data.Dataset.from_tensor_slices(self.train_labels.labels)
-        labels_ds__test = tf.data.Dataset.from_tensor_slices(self.train_labels.labels)
+        # FIXME: quite a lot of repetition here
+        def _read_data_zip_labels(
+            labels: pd.DataFrame, fnames: pd.DataFrame
+        ) -> tf.data.Dataset:
+            fnames = tf.data.Dataset.from_tensor_slices(fnames)
+            images = fnames.map(self._parse_image, num_parallel_calls=AUTOTUNE)
+            labels = tf.data.Dataset.from_tensor_slices(labels)
+            return tf.data.Dataset.zip((images, labels))
 
-        ds_train = tf.data.Dataset.zip((images_ds_train, labels_ds_train))
-        ds_valid = tf.data.Dataset.zip((images_ds_valid, labels_ds_valid))
-        ds__test = tf.data.Dataset.zip((images_ds__test, labels_ds__test))
+        ds_train = _read_data_zip_labels(
+            labels=self.train_labels.labels, fname=self.train_labels.filename
+        )
+        ds_valid = _read_data_zip_labels(
+            labels=self.valid_labels.labels, fname=self.valid_labels.filename
+        )
+        ds__test = _read_data_zip_labels(
+            labels=self.test_labels.labels, fname=self.test_labels.filename
+        )
 
         # create augmented train data
         def _augment_simple(self, ds: tf.data.Dataset) -> tf.data.Dataset:

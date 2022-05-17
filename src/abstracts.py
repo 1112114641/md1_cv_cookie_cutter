@@ -37,7 +37,7 @@ class DataLoaderABC(ABC):
         pass
 
 
-class model:
+class BaseModelABC(ABC):
     def __init__(self, cfg_loc: str) -> None:
         self.config = Config(cfg_loc)
 

@@ -1,5 +1,8 @@
 """
 Some augmentations for image data.
+
+Individual transformations can all be called using ImageAugment given a configuration
+yaml file similar to `artefacts/configs/data_loader.yml`.
 """
 from typing import Tuple, List
 import tensorflow as tf
@@ -59,7 +62,7 @@ def cutmix(
 
 
 @tf.function
-def mix_up(ds_one: tf.data.Dataset, ds_two: tf.data.Dataset, alpha=0.2):
+def mixup(ds_one: tf.data.Dataset, ds_two: tf.data.Dataset, alpha=0.2):
     # Unpack two datasets
     images_one, labels_one = ds_one
     images_two, labels_two = ds_two
@@ -91,6 +94,12 @@ def dropout_area(ds_one: tf.data.Dataset, size: float, fill_value: float):
 
 
 @tf.function
+def random_center_crop(image):
+    crop_image = image
+    return crop_image
+
+
+@tf.function
 def dropout_pixel_grid(
     ds_one: tf.data.Dataset,
     size: int,
@@ -104,3 +113,14 @@ def dropout_pixel_grid(
     for x1, y1, x2, y2 in holes:
         images = dropout_area(images_one, size, fill_value)  # black_out_random_patch
     return (images, labels)
+
+
+for i in range(21):
+    print(
+        i,
+        "l" if (i - 1) % 5 == 0 else "",
+        "h" if (i - 2) % 5 == 0 else "",
+        "w" if (i - 3) % 5 == 0 else "",
+        "x" if (i - 4) % 5 == 0 else "",
+        "y" if ((i - 5) % 5 == 0) & (i > 2) else "",
+    )
