@@ -46,15 +46,19 @@ class BaseModelABC(ABC):
         pass
 
     @abstractmethod
-    def build_model(self):
+    def model_build(self):
         pass
 
     @abstractmethod
-    def train(self):
+    def model_train(self):
         pass
 
     @abstractmethod
-    def evaluate(self):
+    def model_evaluate(self):
+        pass
+
+    @abstractmethod
+    def model_load_weights(self):
         pass
 
 

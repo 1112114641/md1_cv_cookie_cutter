@@ -1,6 +1,7 @@
 from src.abstracts import BaseModelABC
 import tensorflow as tf
 from tensorflow_addons.losses import focal_loss
+from src.data_loader import DataLoader
 
 # https://github.com/Ahmkel/Keras-Project-Template/blob/master/trainers/simple_mnist_trainer.py
 # if hasattr(self.config,"comet_api_key"):
@@ -9,10 +10,117 @@ from tensorflow_addons.losses import focal_loss
 #     experiment.disable_mp()
 #     experiment.log_multiple_params(self.config)
 #     self.callbacks.append(experiment.get_keras_callback())
+DENSE_KERNEL_INITIALIZER = {
+    "class_name": "VarianceScaling",
+    "config": {"scale": 1 / 3.0, "mode": "fan_out", "distribution": "uniform"},
+}
 
 
-# https://www.tensorflow.org/tutorials/distribute/keras
-strategy = tf.distribute.MirroredStrategy()
+class Model(BaseModelABC):
+    """
+    TODO: do the thing.
+    """
+
+    def __init__(self, config, **kwargs) -> None:
+        super().__init__(config)
+        if len(tf.config.list_physical_devices("GPU")) > 1:
+            # https://www.tensorflow.org/tutorials/distribute/keras
+            self.strategy = tf.distribute.MirroredStrategy()
+        self.dl = DataLoader(config)
+
+    def load_data(self) -> None:
+        self.train, self.valid, self.test = self.dl.data_generator()
+
+    def model_build(self):
+        """
+        Do be careful with model input preprocessing!
+        e.g. tf.keras.applications.efficientnet_v2.preprocess_input
+        or  tf.keras.applications.resnet.preprocess_input
+        expecting RGB / BGR respectively, and normalisations.
+        """
+        inputs = tf.keras.layers.Input(shape=(None, None, 3))
+
+        # Generate backbone from configs
+        if self.config.training["model_name"] == "ResNet50":
+            model = tf.keras.applications.resnet50.ResNet50(
+                include_top=False,
+                weights=(
+                    self.config.training["path_to_weights"]
+                    if self.config.training["path_to_weights"]
+                    else "imagenet"
+                ),
+                input_shape=(None, None, 3),
+                pooling="avg",
+            )(inputs)
+        else:
+            model = tf.keras.applications.efficientnet_v2.EfficientNetV2B0(
+                include_top=False,
+                weights=(
+                    self.config.training["path_to_weights"]
+                    if self.config.training["path_to_weights"]
+                    else "imagenet"
+                ),
+                input_shape=(None, None, 3),
+                pooling="avg",
+                include_preprocessing=True,
+            )(inputs)
+
+        # Add top layer with size=classes
+        outputs = tf.keras.layers.Dense(
+            self.config.training["number_of_classes"],
+            kernel_initializer=DENSE_KERNEL_INITIALIZER,
+            kernel_regularizer=tf.keras.regularizers.l2(5e-6),
+            bias_regularizer=tf.keras.regularizers.l2(5e-6),
+            name="logits",
+            activation="linear",
+        )(model)
+        self.model = tf.keras.Model(
+            inputs, outputs, name=self.config.training["model_name"]
+        )
+
+    def custom_lr_schedule(self):
+        class PrintLR(tf.keras.callbacks.Callback):
+            def on_epoch_end(self, epoch, logs=None):
+                print(
+                    f"\nLearning rate for epoch {epoch + 1} is {self.model.optimizer.lr.numpy()}"
+                )
+
+        def decay(epoch):
+            if epoch < 3:
+                return 1e-3
+            elif epoch >= 3 and epoch < 7:
+                return 1e-4
+            else:
+                return 1e-5
+
+        self.callbacks.append(tf.keras.callbacks.LearningRateScheduler(decay))
+        self.callbacks.append(PrintLR())
+
+    def model_train(self):
+        pass
+
+    def model_evaluate(self):
+        pass
+
+    def model_load_weights(self):
+        pass
+
+    def model_strip_top_transferlearn(
+        self, loc: str, activation: str = "sigmoid", name: str = "retrain"
+    ) -> None:
+        model = tf.keras.models.load_model(loc)
+        y_1 = tf.keras.layers.Dropout(0.2, name="top_dropout")(model.layers[-3].output)
+        y_1 = tf.keras.layers.Dense(
+            self.config.training["number_of_classes"],
+            kernel_initializer=DENSE_KERNEL_INITIALIZER,
+            kernel_regularizer=tf.keras.regularizers.l2(5e-6),
+            bias_regularizer=tf.keras.regularizers.l2(5e-6),
+            name="logits",
+            activation=activation,
+        )(y_1)
+        self.model = tf.keras.Model(
+            inputs=model.layers[1].input, outputs=y_1, name=name
+        )
 
 
 def decay(epoch):
@@ -42,38 +150,3 @@ def poly1_focal_loss(logits, labels, epsilon=1.0, gamma=2.0):
     FL = focal_loss(pt, gamma)
     Poly1 = FL + epsilon * tf.math.pow(1 - pt, gamma + 1)
     return Poly1
-
-
-class EfficientNetV2(BaseModelABC):
-    def __init__(self, config, **kwargs) -> None:
-        super().__init__(config)
-
-    def load_data(self):
-        pass
-
-    def build_model(self):
-        pass
-
-    def custom_lr_schedule(self):
-        class PrintLR(tf.keras.callbacks.Callback):
-            def on_epoch_end(self, epoch, logs=None):
-                print(
-                    f"\nLearning rate for epoch {epoch + 1} is {self.model.optimizer.lr.numpy()}"
-                )
-
-        def decay(epoch):
-            if epoch < 3:
-                return 1e-3
-            elif epoch >= 3 and epoch < 7:
-                return 1e-4
-            else:
-                return 1e-5
-
-        self.callbacks.append(tf.keras.callbacks.LearningRateScheduler(decay))
-        self.callbacks.append(PrintLR())
-
-    def train(self):
-        pass
-
-    def evaluate(self):
-        pass

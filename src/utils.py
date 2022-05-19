@@ -19,3 +19,5 @@ class Config:
         self.data = configs["data"]
         self.labels = configs["labels"]
         self.augment_params = configs["augment_params"]
+        self.training = configs["training"]
+        self.experiment = configs["experiment"]

@@ -1,8 +1,8 @@
 """
 Data loader: load your data and/or create augmented data, which can then be persisted.
 
-# TODO: implement the augmentations as part of the pipeline
-# TODO: implement persist data fct
+TODO: implement the augmentations as part of the pipeline
+TODO: implement persist data fct
 """
 import os
 import numpy as np
@@ -29,7 +29,7 @@ class DataLoader(DataLoaderABC):
     Data Loader for a tensorflow/image classification setup. Needs to be properly
     extended to object detection purposes.
 
-    # FIXME: extend to object detection tasks & pytorch
+    FIXME: extend to object detection tasks & pytorch
     """
 
     def __init__(self, config, **kwargs) -> None:
@@ -37,7 +37,9 @@ class DataLoader(DataLoaderABC):
         self.labels = self.read_labels(self.config.labels["label_dir"])
         self._train_test_split_labels()
 
-    def data_generator(self, *args) -> Tuple[tf.data.Dataset]:
+    def data_generator(
+        self,
+    ) -> Tuple[tf.data.Dataset]:
         """Create data ready for training."""
         # image_filenames = [
         # os.path.join(dp, f) for dp, dn, filenames in os.walk(path) for f in filenames
