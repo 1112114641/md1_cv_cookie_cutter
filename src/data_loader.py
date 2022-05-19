@@ -1,29 +1,20 @@
 """
-Data loader: load your data and/or create augmented data
+Data loader: load your data and/or create augmented data, which can then be persisted.
 
-
-Minimum viable code snippet:
-```python
-dl = DataLoader()
-
-```
+# TODO: implement the augmentations as part of the pipeline
+# TODO: implement persist data fct
 """
 import os
 import numpy as np
 import logging
 import pandas as pd
 import tensorflow as tf
-from typing import Tuple
+from typing import Tuple  # , Callable, Dict, List
 from abstracts import DataLoaderABC
 from sklearn.model_selection import train_test_split
 from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
-from src.augmentations import (
-    random_center_crop,
-    cutmix,
-    mixup,
-    dropout_area,
-)
 
+# from src.augmentations import Augment
 # import joblib
 # import numpy as np
 # from sklearn.preprocessing import OneHotEncoder
@@ -74,58 +65,7 @@ class DataLoader(DataLoaderABC):
             labels=self.test_labels.labels, fname=self.test_labels.filename
         )
 
-        # create augmented train data
-        def _augment_simple(self, ds: tf.data.Dataset) -> tf.data.Dataset:
-            (image, label) = ds
-            if self.config.augment_params["brightness"]:
-                image = tf.image.random_brightness(
-                    image, max_delta=0.2, seed=self.config.augment_params["random_seed"]
-                )
-            if self.config.augment_params["flip_updown"]:
-                image = tf.image.random_flip_up_down(  # FIXME: fix for object detection
-                    image, seed=self.config.augment_params["random_seed"]
-                )
-            if self.config.augment_params["flip_leftright"]:
-                image = (
-                    tf.image.random_flip_left_right(  # FIXME: fix for object detection
-                        image, seed=self.config.augment_params["random_seed"]
-                    )
-                )
-            if self.config.augment_params["crop"]:
-                image = random_center_crop(  # FIXME: fix for object detection
-                    image,
-                    offset=self.config.augment_params["crop"],
-                    seed=self.config.augment_params["random_seed"],
-                )
-            if self.config.augment_params["contrast"]:
-                image = tf.image.random_contrast(
-                    image,
-                    lower=0.2,
-                    upper=1.0,
-                    seed=self.config.augment_params["random_seed"],
-                )
-            if self.config.augment_params["quality"]:
-                image = tf.image.random_jpeg_quality(
-                    image,
-                    min_jpeg_quality=80,
-                    max_jpeg_quality=100,
-                    seed=self.config.augment_params["random_seed"],
-                )
-            if self.config.augment_params["saturation"]:
-                image = tf.image.random_saturation(
-                    image,
-                    lower=80,
-                    upper=100,
-                    seed=self.config.augment_params["random_seed"],
-                )
-            if self.config.augment_params["dropout_area"]:
-                image = dropout_area(  # FIXME: fix for object detection
-                    image,
-                    lower=5,
-                    upper=15,
-                    seed=self.config.augment_params["random_seed"],
-                )
-            return image, label
+        # ds_train = self.augment.run_augmentations()
 
         ds_train, ds_valid, ds_test = self._configure_for_performance(
             valid=ds_valid, test=ds__test, train=ds_train
@@ -137,15 +77,15 @@ class DataLoader(DataLoaderABC):
         Create augmented data given a certain random seed, and save to
         `DataLoader.config.data.augment_dir`.
         """
-        loader = self.data_generator()
-        loader = loader
-        amount_to_create = (
-            self.labels.shape[0] * self.config["augment_tf"]["augmentations_amount"]
-        )
-        for _ in range(amount_to_create):
-            a = 1
-            a = a
-            # create images
+        # loader = self.data_generator()
+        # loader = loader
+        # amount_to_create = (
+        #     self.labels.shape[0] * self.config["augment_tf"]["augmentations_amount"]
+        # )
+        # for _ in range(amount_to_create):
+        #     a = 1
+        #     a = a
+        #     # create images
         pass
 
     def _train_test_split_labels(
@@ -237,18 +177,18 @@ class DataLoader(DataLoaderABC):
         # image = tf.py_function(func=augment_images, inp=[image], Tout=tf.uint8)
         return image
 
-    def _augment_complex(
-        self, ds: tf.data.Dataset, ds2: tf.data.Dataset
-    ) -> tf.data.Dataset:
-        if self.config.augment_params["cutmix"]:
-            ds, ds2 = cutmix(  # FIXME: fix for object detection
-                ds, ds2, max_size=30, seed=self.config.augment_params["random_seed"]
-            )
-        if self.config.augment_params["mixup"]:
-            ds, ds2 = mixup(  # FIXME: fix for object detection
-                ds, ds2, seed=self.config.augment_params["random_seed"]
-            )
-        return ds
+    # def _augment_complex(
+    #     self, ds: tf.data.Dataset, ds2: tf.data.Dataset
+    # ) -> tf.data.Dataset:
+    #     if self.config.augment_params["cutmix"]:
+    #         ds, ds2 = cutmix(  # FIXME: fix for object detection
+    #             ds, ds2, max_size=30, seed=self.config.augment_params["random_seed"]
+    #         )
+    #     if self.config.augment_params["mixup"]:
+    #         ds, ds2 = mixup(  # FIXME: fix for object detection
+    #             ds, ds2, seed=self.config.augment_params["random_seed"]
+    #         )
+    #     return ds
 
     def _configure_for_performance(
         self, train: tf.data.Dataset, valid: tf.data.Dataset, test: tf.data.Dataset

@@ -3,6 +3,9 @@ Some augmentations for image data.
 
 Individual transformations can all be called using ImageAugment given a configuration
 yaml file similar to `artefacts/configs/data_loader.yml`.
+
+# TODO: create augment class, read in parameters, create list of augmentation functions
+# TODO: make class callable for `DataLoader`
 """
 from typing import Tuple, List
 import tensorflow as tf
@@ -115,12 +118,67 @@ def dropout_pixel_grid(
     return (images, labels)
 
 
-for i in range(21):
-    print(
-        i,
-        "l" if (i - 1) % 5 == 0 else "",
-        "h" if (i - 2) % 5 == 0 else "",
-        "w" if (i - 3) % 5 == 0 else "",
-        "x" if (i - 4) % 5 == 0 else "",
-        "y" if ((i - 5) % 5 == 0) & (i > 2) else "",
-    )
+# for i in range(21):
+#     print(
+#         i,
+#         "l" if (i - 1) % 5 == 0 else "",
+#         "h" if (i - 2) % 5 == 0 else "",
+#         "w" if (i - 3) % 5 == 0 else "",
+#         "x" if (i - 4) % 5 == 0 else "",
+#         "y" if ((i - 5) % 5 == 0) & (i > 2) else "",
+#     )
+
+
+###
+#
+# data augmentation calls -
+#
+###
+# if self.config.augment_params["brightness"]:
+#     image = tf.image.random_brightness(
+#         image, max_delta=0.2, seed=self.config.augment_params["random_seed"]
+#     )
+# if self.config.augment_params["flip_updown"]:
+#     image = tf.image.random_flip_up_down(  # FIXME: fix for object detection
+#         image, seed=self.config.augment_params["random_seed"]
+#     )
+# if self.config.augment_params["flip_leftright"]:
+#     image = (
+#         tf.image.random_flip_left_right(  # FIXME: fix for object detection
+#             image, seed=self.config.augment_params["random_seed"]
+#         )
+#     )
+# if self.config.augment_params["crop"]:
+#     image = random_center_crop(  # FIXME: fix for object detection
+#         image,
+#         offset=self.config.augment_params["crop"],
+#         seed=self.config.augment_params["random_seed"],
+#     )
+# if self.config.augment_params["contrast"]:
+#     image = tf.image.random_contrast(
+#         image,
+#         lower=0.2,
+#         upper=1.0,
+#         seed=self.config.augment_params["random_seed"],
+#     )
+# if self.config.augment_params["quality"]:
+#     image = tf.image.random_jpeg_quality(
+#         image,
+#         min_jpeg_quality=80,
+#         max_jpeg_quality=100,
+#         seed=self.config.augment_params["random_seed"],
+#     )
+# if self.config.augment_params["saturation"]:
+#     image = tf.image.random_saturation(
+#         image,
+#         lower=80,
+#         upper=100,
+#         seed=self.config.augment_params["random_seed"],
+#     )
+# if self.config.augment_params["dropout_area"]:
+#     image = dropout_area(  # FIXME: fix for object detection
+#         image,
+#         lower=5,
+#         upper=15,
+#         seed=self.config.augment_params["random_seed"],
+#     )
