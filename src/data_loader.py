@@ -34,7 +34,7 @@ class DataLoader(DataLoaderABC):
 
     def __init__(self, config, **kwargs) -> None:
         super().__init__(config)
-        self.labels = self.read_labels(self.config.labels["label_dir"])
+        self.labels = self.read_labels(self.config.labels_dir)
         self._train_test_split_labels()
 
     def data_generator(
@@ -82,7 +82,7 @@ class DataLoader(DataLoaderABC):
         # loader = self.data_generator()
         # loader = loader
         # amount_to_create = (
-        #     self.labels.shape[0] * self.config["augment_tf"]["augmentations_amount"]
+        #     self.labels.shape[0] * self.config.augment_params_augmentations_amount
         # )
         # for _ in range(amount_to_create):
         #     a = 1
@@ -95,7 +95,7 @@ class DataLoader(DataLoaderABC):
     ) -> Tuple[pd.DataFrame]:
         """
         Returns indices of stratified train/test split set.
-        If `self.config.labels["val_test_subsplits"]`, ensure each item occurs with a
+        If `self.config.labels_val_test_subsplits`, ensure each item occurs with a
         sufficient frequency.
         Caution: does not filter for duplicate files in the file list!
 
@@ -103,25 +103,25 @@ class DataLoader(DataLoaderABC):
         """
         mlsss_train_valtest = MultilabelStratifiedShuffleSplit(
             n_splits=2,
-            train_size=(1 - self.config.labels["train_test_split"]),
-            test_size=self.config.labels["train_test_split"],
-            random_state=self.config.labels["random_seed"],
+            train_size=(1 - self.config.labels_train_test_split),
+            test_size=self.config.labels_train_test_split,
+            random_state=self.config.random_seed,
         )
 
         try:
             Y = self.labels.labels  # labels to be stratified,
             X = np.zeros(self.labels.shape[0])  # placeholder
-            if self.config.labels["train_test_split"] > 0:
+            if self.config.labels_train_test_split > 0:
                 train_indices, valid_indices = next(mlsss_train_valtest.split(X, Y))
                 self.train_labels = self.labels[train_indices]
                 self.valid_labels = self.labels[valid_indices]
 
-                if self.config.labels["val_test_subsplits"] > 0:
+                if self.config.labels_val_test_subsplits > 0:
                     mlsss_val_test = MultilabelStratifiedShuffleSplit(
                         n_splits=2,
-                        train_size=(1 - self.config.labels["val_test_subsplits"]),
-                        test_size=self.config.labels["val_test_subsplits"],
-                        random_state=self.config.labels["random_seed"],
+                        train_size=(1 - self.config.labels_val_test_subsplits),
+                        test_size=self.config.labels_val_test_subsplits,
+                        random_state=self.config.random_seed,
                     )
                     valid_indices, test_indices = next(
                         mlsss_val_test.split(
@@ -135,20 +135,20 @@ class DataLoader(DataLoaderABC):
             X_train, X_valid, y_train, y_valid = train_test_split(
                 np.zeros((self.labels.shape[0],)),
                 self.labels.labels,
-                random_state=self.config.labels["random_seed"],
-                test_size=self.config.labels["train_test_split"],
-                train_size=(1 - self.config.labels["train_test_split"]),
+                random_state=self.config.random_seed,
+                test_size=self.config.labels_train_test_split,
+                train_size=(1 - self.config.labels_train_test_split),
                 stratify=self.labels.labels,
             )
             self.train_labels = self.labels[y_train.index]
             self.valid_labels = self.labels[y_valid.index]
-            if self.config.labels["val_test_subsplits"] > 0:
+            if self.config.labels_val_test_subsplits > 0:
                 X_valid, X_test, y_valid, y_test = train_test_split(
                     np.zeros(self.valid_labels.shape[0]),
                     self.valid_labels.labels,
-                    random_state=self.config.labels["random_seed"],
-                    test_size=self.config.labels["val_test_subsplits"],
-                    train_size=(1 - self.config.labels["val_test_subsplits"]),
+                    random_state=self.config.random_seed,
+                    test_size=self.config.labels_val_test_subsplits,
+                    train_size=(1 - self.config.labels_val_test_subsplits),
                     stratify=self.labels.labels,
                 )
                 self.valid_labels = self.labels[y_valid.index]
@@ -168,9 +168,9 @@ class DataLoader(DataLoaderABC):
         inference run-time.
         """
         try:
-            image = tf.io.read_file(self.config.data["data_dir"] + filename)
+            image = tf.io.read_file(self.config.data_dir + filename)
         except FileNotFoundError:
-            logging.info(f"{filename} not found in {self.config.data['data_dir']}.")
+            logging.info(f"{filename} not found in {self.config.data_dir}.")
         image = tf.io.decode_image(image, channels=3)
         # image = tf.image.rgb_to_grayscale(image)
         img_size = self.config.data["img_height"]
@@ -182,13 +182,13 @@ class DataLoader(DataLoaderABC):
     # def _augment_complex(
     #     self, ds: tf.data.Dataset, ds2: tf.data.Dataset
     # ) -> tf.data.Dataset:
-    #     if self.config.augment_params["cutmix"]:
+    #     if self.config.augment_params_cutmix:
     #         ds, ds2 = cutmix(  # FIXME: fix for object detection
-    #             ds, ds2, max_size=30, seed=self.config.augment_params["random_seed"]
+    #             ds, ds2, max_size=30, seed=self.config.random_seed
     #         )
-    #     if self.config.augment_params["mixup"]:
+    #     if self.config.augment_params_mixup:
     #         ds, ds2 = mixup(  # FIXME: fix for object detection
-    #             ds, ds2, seed=self.config.augment_params["random_seed"]
+    #             ds, ds2, seed=self.config.random_seed
     #         )
     #     return ds
 
@@ -201,14 +201,14 @@ class DataLoader(DataLoaderABC):
         """
         train = (
             train.shuffle(buffer_size=BUFFER_SIZE)
-            .batch(self.config.training["batch_size"])
+            .batch(self.config.training_batch_size)
             .repeat()
             .prefetch(buffer_size=AUTOTUNE)
         )
-        valid = valid.batch(self.config.training["batch_size"]).prefetch(
+        valid = valid.batch(self.config.training_batch_size).prefetch(
             buffer_size=AUTOTUNE
         )
-        test = test.batch(self.config.training["batch_size"]).prefetch(
+        test = test.batch(self.config.training_batch_size).prefetch(
             buffer_size=AUTOTUNE
         )
         return train, valid, test

@@ -46,8 +46,8 @@ class Model(BaseModelABC):
             model = tf.keras.applications.resnet50.ResNet50(
                 include_top=False,
                 weights=(
-                    self.config.training["path_to_weights"]
-                    if self.config.training["path_to_weights"]
+                    self.config.training_path_to_weights
+                    if self.config.training_path_to_weights
                     else "imagenet"
                 ),
                 input_shape=(None, None, 3),
@@ -57,8 +57,8 @@ class Model(BaseModelABC):
             model = tf.keras.applications.efficientnet_v2.EfficientNetV2B0(
                 include_top=False,
                 weights=(
-                    self.config.training["path_to_weights"]
-                    if self.config.training["path_to_weights"]
+                    self.config.training_path_to_weights
+                    if self.config.training_path_to_weights
                     else "imagenet"
                 ),
                 input_shape=(None, None, 3),
@@ -68,7 +68,7 @@ class Model(BaseModelABC):
 
         # Add top layer with size=classes
         outputs = tf.keras.layers.Dense(
-            self.config.training["number_of_classes"],
+            self.config.training_number_of_classes,
             kernel_initializer=DENSE_KERNEL_INITIALIZER,
             kernel_regularizer=tf.keras.regularizers.l2(5e-6),
             bias_regularizer=tf.keras.regularizers.l2(5e-6),
@@ -76,7 +76,7 @@ class Model(BaseModelABC):
             activation="linear",
         )(model)
         self.model = tf.keras.Model(
-            inputs, outputs, name=self.config.training["model_name"]
+            inputs, outputs, name=self.config.training_model_name
         )
 
     def custom_lr_schedule(self):
@@ -110,12 +110,12 @@ class Model(BaseModelABC):
         self, loc: str, activation: str = "sigmoid", name: str = "retrain"
     ) -> None:
         model = tf.keras.models.load_model(loc)
-        layer_no = 2 if self.config.training["model_name"] == "ResNet50" else 3
+        layer_no = 2 if self.config.training_model_name == "ResNet50" else 3
         y_1 = tf.keras.layers.Dropout(0.2, name="top_dropout")(
             model.layers[-layer_no].output
         )
         y_1 = tf.keras.layers.Dense(
-            self.config.training["number_of_classes"],
+            self.config.training_number_of_classes,
             kernel_initializer=DENSE_KERNEL_INITIALIZER,
             kernel_regularizer=tf.keras.regularizers.l2(5e-6),
             bias_regularizer=tf.keras.regularizers.l2(5e-6),
