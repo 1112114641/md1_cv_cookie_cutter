@@ -26,8 +26,12 @@ class Model(BaseModelABC):
         if len(tf.config.list_physical_devices("GPU")) > 1:
             # https://www.tensorflow.org/tutorials/distribute/keras
             self.strategy = tf.distribute.MirroredStrategy()
+            tf.config.experimental.set_memory_growth(
+                tf.config.list_physical_devices("GPU")[0], True
+            )
         self.dl = DataLoader(config)
         self.model_build()
+        # prevent OOM issues
 
     def load_data(self) -> None:
         self.train, self.valid, self.test = self.dl.data_generator()

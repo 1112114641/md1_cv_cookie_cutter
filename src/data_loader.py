@@ -3,6 +3,8 @@ Data loader: load your data and/or create augmented data, which can then be pers
 
 TODO: implement the augmentations as part of the pipeline
 TODO: implement persist data fct
+
+TODO: enable loading standard datasets (MNIST, COCO, Imagenet, ...)
 """
 import os
 import numpy as np
@@ -10,7 +12,7 @@ import logging
 import pandas as pd
 import tensorflow as tf
 from typing import Tuple  # , Callable, Dict, List
-from abstracts import DataLoaderABC
+from src.abstracts import DataLoaderABC
 from sklearn.model_selection import train_test_split
 from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
 
@@ -54,17 +56,17 @@ class DataLoader(DataLoaderABC):
         ) -> tf.data.Dataset:
             fnames = tf.data.Dataset.from_tensor_slices(fnames)
             images = fnames.map(self._parse_image, num_parallel_calls=AUTOTUNE)
-            labels = tf.data.Dataset.from_tensor_slices(labels)
+            labels = tf.data.Dataset.from_tensor_slices(labels.values.tolist())
             return tf.data.Dataset.zip((images, labels))
 
         ds_train = _read_data_zip_labels(
-            labels=self.train_labels.labels, fname=self.train_labels.filename
+            labels=self.train_labels.labels, fnames=self.train_labels.filename
         )
         ds_valid = _read_data_zip_labels(
-            labels=self.valid_labels.labels, fname=self.valid_labels.filename
+            labels=self.valid_labels.labels, fnames=self.valid_labels.filename
         )
         ds__test = _read_data_zip_labels(
-            labels=self.test_labels.labels, fname=self.test_labels.filename
+            labels=self.test_labels.labels, fnames=self.test_labels.filename
         )
 
         # ds_train = self.augment.run_augmentations()
@@ -112,9 +114,11 @@ class DataLoader(DataLoaderABC):
             Y = self.labels.labels  # labels to be stratified,
             X = np.zeros(self.labels.shape[0])  # placeholder
             if self.config.labels_train_test_split > 0:
-                train_indices, valid_indices = next(mlsss_train_valtest.split(X, Y))
-                self.train_labels = self.labels[train_indices]
-                self.valid_labels = self.labels[valid_indices]
+                train_indices, valid_indices = next(
+                    mlsss_train_valtest.split(X, Y.tolist())
+                )
+                self.train_labels = self.labels.iloc[train_indices]
+                self.valid_labels = self.labels.iloc[valid_indices]
 
                 if self.config.labels_val_test_subsplits > 0:
                     mlsss_val_test = MultilabelStratifiedShuffleSplit(
@@ -126,11 +130,11 @@ class DataLoader(DataLoaderABC):
                     valid_indices, test_indices = next(
                         mlsss_val_test.split(
                             np.zeros(self.valid_labels.shape[0]),
-                            self.valid_labels.labels,
+                            self.valid_labels.labels.tolist(),
                         )
                     )
-                    self.valid_labels = self.labels[valid_indices]
-                    self.test_labels = self.labels[test_indices]
+                    self.valid_labels = self.labels.iloc[valid_indices]
+                    self.test_labels = self.labels.iloc[test_indices]
         except IndexError:
             X_train, X_valid, y_train, y_valid = train_test_split(
                 np.zeros((self.labels.shape[0],)),
@@ -140,8 +144,8 @@ class DataLoader(DataLoaderABC):
                 train_size=(1 - self.config.labels_train_test_split),
                 stratify=self.labels.labels,
             )
-            self.train_labels = self.labels[y_train.index]
-            self.valid_labels = self.labels[y_valid.index]
+            self.train_labels = self.labels.iloc[y_train.index]
+            self.valid_labels = self.labels.iloc[y_valid.index]
             if self.config.labels_val_test_subsplits > 0:
                 X_valid, X_test, y_valid, y_test = train_test_split(
                     np.zeros(self.valid_labels.shape[0]),
@@ -151,8 +155,8 @@ class DataLoader(DataLoaderABC):
                     train_size=(1 - self.config.labels_val_test_subsplits),
                     stratify=self.labels.labels,
                 )
-                self.valid_labels = self.labels[y_valid.index]
-                self.test_labels = self.labels[y_test.index]
+                self.valid_labels = self.labels.iloc[y_valid.index]
+                self.test_labels = self.labels.iloc[y_test.index]
             else:
                 self.test_labels = pd.DataFrame(columns=["filename"])
 
@@ -171,9 +175,9 @@ class DataLoader(DataLoaderABC):
             image = tf.io.read_file(self.config.data_dir + filename)
         except FileNotFoundError:
             logging.info(f"{filename} not found in {self.config.data_dir}.")
-        image = tf.io.decode_image(image, channels=3)
+        image = tf.io.decode_png(image, channels=3)
         # image = tf.image.rgb_to_grayscale(image)
-        img_size = self.config.data["img_height"]
+        img_size = self.config.data_img_height
         image = tf.image.resize(image, size=[img_size, img_size])
         image = tf.image.convert_image_dtype(image, tf.float32) / 255.0
         # image = tf.py_function(func=augment_images, inp=[image], Tout=tf.uint8)
@@ -227,9 +231,9 @@ class DataLoader(DataLoaderABC):
             into columns into columns like:
             fname:str, labels:List[str], bbox_hwxy:List[List[int,int,int,int]]
         """
-        label_dir = label_dir if label_dir else self.label_dir
+        label_dir = label_dir if label_dir else self.config.labels_dir
 
-        if os.path.isile(label_dir):
+        if os.path.isfile(label_dir):
             label_dir = label_dir if label_dir else self.label_dir
             labels_df = pd.read_csv(label_dir).fillna("")
 
@@ -237,16 +241,21 @@ class DataLoader(DataLoaderABC):
             if labels_df.shape[1] >= 6:
 
                 def _reshape_label_df_for_object_detect(
-                    labels: pd.DateFrame,
+                    labels: pd.DataFrame,
                 ) -> pd.DataFrame:
-                    max_objects = (labels.shape[1] - 1) / 5
-                    labels_tmp = labels["filename"]
+                    max_objects = int((labels_df.shape[1] - 1) / 5)
+                    labels_tmp = pd.DataFrame(
+                        columns=["filename", "labels", "bbox_hwxy"]
+                    )
+                    labels_tmp["filename"] = labels_df["filename"]
 
                     # determine label / bbox col positions
-                    label_cols = [n for n in range(max_objects) if ((n - 1) % 5 == 0)]
+                    label_cols = [
+                        n for n in range(max_objects * 5) if ((n - 1) % 5 == 0)
+                    ]
                     bbox_cols = [
                         n
-                        for n in range(max_objects)
+                        for n in range(max_objects * 5 + 1)
                         if (
                             ((n - 2) % 5 == 0)
                             | ((n - 3) % 5 == 0)
@@ -255,13 +264,17 @@ class DataLoader(DataLoaderABC):
                         )
                     ]
                     # all labels per row added to list
-                    labels_tmp["labels"] = labels.iloc[:, label_cols].values.tolist()
+                    labels_tmp["labels"] = pd.Series(
+                        labels_df.iloc[:, label_cols].values.tolist()
+                    )
                     # filter out empty labels
                     labels_tmp["labels"] = labels_tmp["labels"].apply(
                         lambda x: [i for i in x if i != ""]
                     )
                     # create one column of all bounding box hwxy values
-                    labels_tmp["bbox_hwxy"] = labels.iloc[:, bbox_cols].values.tolist()
+                    labels_tmp["bbox_hwxy"] = pd.Series(
+                        labels_df.iloc[:, bbox_cols].values.tolist()
+                    )
                     labels_tmp["bbox_hwxy"] = labels_tmp["bbox_hwxy"].apply(
                         # grab every 4th element, add that one and following four to a list
                         lambda x: [
@@ -271,14 +284,13 @@ class DataLoader(DataLoaderABC):
                             & (x[i + 2] != "")
                             & (x[i + 3] != "")
                             else list()
-                            for i in range(0, len(x), 4)
+                            for i in range(0, len(x) - 1, 4)
                         ]
                     )
                     # filter out empty bbox elements
                     labels_tmp["bbox_hwxy"] = labels_tmp["bbox_hwxy"].apply(
-                        lambda x: [i for i in x if i != ""]
+                        lambda x: [i for i in x if i]
                     )
-
                     # sanity check to remove empty labels/bbox:
                     faulty = labels_tmp[
                         labels_tmp["labels"].map(lambda x: len(x)) == 0
@@ -289,20 +301,33 @@ class DataLoader(DataLoaderABC):
                     # same to ensure each label has a bbox
                     tmp_screen_labels = labels_tmp["labels"].apply(lambda x: len(x))
                     tmp_screen_bbox = labels_tmp["bbox_hwxy"].apply(lambda x: len(x))
-                    abc = np.where(
-                        tmp_screen_labels == tmp_screen_bbox,
-                        np.zeros((tmp_screen_bbox.shape[0],)),
-                        np.zeros((tmp_screen_bbox.shape[0],)),
-                    )
-                    assert (
-                        abc.sum() == 0
+                    abc = (tmp_screen_labels == tmp_screen_bbox) * 1
+
+                    assert abc.sum() == len(
+                        abc
                     ), "Not enough bounding boxes/labels in rows: {}".format(
-                        abc[abc != 0]
+                        abc[abc == 0].index.values
                     )
                     # and filter out empty rows w/o labels
                     return labels_tmp
 
                 labels_df = _reshape_label_df_for_object_detect(labels=labels_df)
+
+            # Atomize lables for training/data split:
+            fff = labels_df["labels"].apply(
+                lambda x: ",".join(x)
+            )  # bit of an ugly workaround, lol
+            fff = fff.apply(lambda x: str(x).split(",")).explode()
+            tmp = pd.DataFrame(labels_df["filename"], columns=["filename"])
+            tmp = tmp[["filename"]].join(pd.crosstab(fff.index, fff))
+            classes = list(tmp.columns[1:])
+            vals = pd.Series(tmp.iloc[:, 1:].values.tolist())
+            labels_df["labels"] = vals
+            labels_df["labels"] = labels_df["labels"].apply(
+                lambda x: np.asarray(x).astype("float32")
+            )
+            labels_df["classes"] = [classes] * labels_df.shape[0]
+
             assert ("filename" in labels_df.columns) & (
                 "labels" in labels_df.columns
             ), "Follow example label file structure!"
