@@ -4,11 +4,95 @@ Some augmentations for image data.
 Individual transformations can all be called using ImageAugment given a configuration
 yaml file similar to `artefacts/configs/data_loader.yml`.
 
+
+structure:
+augmentation functions
+random generator
+class Augment
+
 TODO: create augment class, read in parameters, create list of augmentation functions
 TODO: make class callable for `DataLoader`
 """
-# from typing import Tuple, List
-# import tensorflow as tf
+from typing import List
+import numpy as np
+import tensorflow as tf
+import tensorflow_addons as tfa
+from src.abstracts import AugmentABC
+
+# import tensorflow_probability as tfp
+# import tensorflow_models.vision as tmv
+
+
+AVAILABLE_OPS = [
+    tf.image.adjust_brightness,  # https://www.tensorflow.org/api_docs/python/tf/image/random_brightness
+    tf.image.flip_up_down,  # https://www.tensorflow.org/api_docs/python/tf/image/random_flip_up_down
+    tf.image.flip_left_right,  # https://www.tensorflow.org/api_docs/python/tf/image/random_flip_left_right
+    # random_central_crop,  # https://www.tensorflow.org/api_docs/python/tf/image/central_crop
+    tf.image.adjust_contrast,  # https://www.tensorflow.org/api_docs/python/tf/image/random_contrast
+    tf.image.adjust_jpeg_quality,  # https://www.tensorflow.org/api_docs/python/tf/image/random_jpeg_quality
+    tf.image.adjust_saturation,  # https://www.tensorflow.org/api_docs/python/tf/image/random_saturation
+    tfa.image.cutout,  # https://www.tensorflow.org/addons/api_docs/python/tfa/image/random_cutout
+    # dropout_grid,  # inspired by https://arxiv.org/abs/2001.04086
+    # mixup,  # https://www.tensorflow.org/api_docs/python/tf/image/random_flip_up_down
+    # cutmix,  # https://www.tensorflow.org/api_docs/python/tf/image/random_flip_up_down
+    # random_rotation, # cf
+]
+
+
+class AugmentClassic(AugmentABC):
+    def __init__(self, cfg_loc: str) -> None:
+        super().__init__(cfg_loc)
+        self.param_list = [
+            getattr(self.config, s)
+            for s in dir(self.config)
+            if s.startswith("augment_params_")
+        ]
+        self.aug_list = self._choose_augs()
+
+    def _choose_augs(
+        self,
+    ) -> List:
+        perform_aug = np.array([True if prm else False for prm in self.param_list])
+        return np.array(AVAILABLE_OPS)[perform_aug]
+
+    def run_augmentations(self, image: tf.Tensor) -> tf.Tensor:
+        # get number N of augmentations
+        # create N rand uniform numbers
+        # apply all fct from AVAILABLE_OPS if available
+        rnd = tf.random.uniform(shape=[], minval=0.0, maxval=1.0)
+        rnd_max_index = tf.math.argmax(rnd)
+        if rnd[rnd_max_index] >= 0.5:
+            image = self.aug_list[rnd_max_index](image, self.param_list[rnd_max_index])
+            # apply_grid_mask(image, (*IMG_DIM,3))
+        return image
+
+    def run_AugMix_augmentations(self, image: tf.Tensor) -> tf.Tensor:
+        """Following AugMix as introduced in https://arxiv.org/pdf/1912.02781.pdf.
+
+        Args:
+            image (tf.Tensor)
+
+        Returns:
+            tf.Tensor: Augmented image
+        """
+        (
+            strength,
+            width,
+            depth,
+            alpha,
+        ) = self.config.augment_params_AugMix.values()
+        dirichlet_sample = np.random.dirichlet([alpha] * width).astype(np.float32)
+        m = np.float32(np.random.beta(alpha, alpha))
+        mix = np.zeros_like(image).astype(np.float32)
+        for i in range(width):
+            image_aug = image.copy()
+            for _ in range(depth):
+                op = np.random.choice(self.augmentations)
+                image_aug = self.apply_op(image_aug, op, strength)
+                mix += dirichlet_sample[i] * image_aug
+
+        mixed = (1 - m) * image + m * mix
+        return mixed
 
 
 # def sample_beta_distribution(
@@ -97,12 +181,6 @@ TODO: make class callable for `DataLoader`
 
 
 # @tf.function
-# def random_center_crop(image):
-#     crop_image = image
-#     return crop_image
-
-
-# @tf.function
 # def dropout_pixel_grid(
 #     ds_one: tf.data.Dataset,
 #     size: int,
@@ -182,3 +260,64 @@ TODO: make class callable for `DataLoader`
 #         upper=15,
 #         seed=self.config.augment_params["random_seed"],
 #     )
+
+
+# def GridMask(image_height, image_width, d1, d2, rotate_angle=1, ratio=0.5):
+
+#     h, w = image_height, image_width
+#     hh = int(np.ceil(np.sqrt(h*h+w*w)))
+#     hh = hh+1 if hh%2==1 else hh
+#     d = tf.random.uniform(shape=[], minval=d1, maxval=d2, dtype=tf.int32)
+#     l = tf.cast(tf.cast(d,tf.float32)*ratio+0.5, tf.int32)
+
+#     st_h = tf.random.uniform(shape=[], minval=0, maxval=d, dtype=tf.int32)
+#     st_w = tf.random.uniform(shape=[], minval=0, maxval=d, dtype=tf.int32)
+
+#     y_ranges = tf.range(-1 * d + st_h, -1 * d + st_h + l)
+#     x_ranges = tf.range(-1 * d + st_w, -1 * d + st_w + l)
+
+#     for i in range(0, hh//d+1):
+#         s1 = i * d + st_h
+#         s2 = i * d + st_w
+#         y_ranges = tf.concat([y_ranges, tf.range(s1,s1+l)], axis=0)
+#         x_ranges = tf.concat([x_ranges, tf.range(s2,s2+l)], axis=0)
+
+#     x_clip_mask = tf.logical_or(x_ranges <0 , x_ranges > hh-1)
+#     y_clip_mask = tf.logical_or(y_ranges <0 , y_ranges > hh-1)
+#     clip_mask = tf.logical_or(x_clip_mask, y_clip_mask)
+
+#     x_ranges = tf.boolean_mask(x_ranges, tf.logical_not(clip_mask))
+#     y_ranges = tf.boolean_mask(y_ranges, tf.logical_not(clip_mask))
+
+#     hh_ranges = tf.tile(tf.range(0,hh), [tf.cast(tf.reduce_sum(tf.ones_like(x_ranges)), tf.int32)])
+#     x_ranges = tf.repeat(x_ranges, hh)
+#     y_ranges = tf.repeat(y_ranges, hh)
+
+#     y_hh_indices = tf.transpose(tf.stack([y_ranges, hh_ranges]))
+#     x_hh_indices = tf.transpose(tf.stack([hh_ranges, x_ranges]))
+
+#     y_mask_sparse = tf.SparseTensor(tf.cast(y_hh_indices, tf.int64),  tf.zeros_like(y_ranges), [hh, hh])
+#     y_mask = tf.sparse.to_dense(y_mask_sparse, 1, False)
+
+#     x_mask_sparse = tf.SparseTensor(tf.cast(x_hh_indices, tf.int64), tf.zeros_like(x_ranges), [hh, hh])
+#     x_mask = tf.sparse.to_dense(x_mask_sparse, 1, False)
+
+#     mask = tf.expand_dims( tf.clip_by_value(x_mask + y_mask, 0, 1), axis=-1)
+
+#     mask = random_rotate(mask, rotate_angle, [hh, hh, 1])
+#     mask = tf.image.crop_to_bounding_box(mask, (hh-h)//2, (hh-w)//2, image_height, image_width)
+
+#     return mask
+
+# def apply_grid_mask(image, image_shape):
+#     mask = GridMask(image_shape[0],
+#                     image_shape[1],
+#                     AugParams['d1'],
+#                     AugParams['d2'],
+#                     AugParams['rotate'],
+#                     AugParams['ratio'])
+
+#     if image_shape[-1] == 3:
+#         mask = tf.concat([mask, mask, mask], axis=-1)
+
+#     return image * tf.cast(mask, tf.uint8)

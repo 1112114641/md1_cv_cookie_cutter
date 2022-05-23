@@ -62,6 +62,31 @@ class BaseModelABC(ABC):
         pass
 
 
+class AugmentABC(ABC):
+    def __init__(self, cfg_loc: str) -> None:
+        self.config = Config(cfg_loc)
+
+    # @abstractmethod
+    # def simple_augment(self):
+    #     pass
+
+    # @abstractmethod
+    # def complex_augment(self):
+    #     pass
+
+    # @abstractmethod
+    # def model_train(self):
+    #     pass
+
+    # @abstractmethod
+    # def model_evaluate(self):
+    #     pass
+
+    # @abstractmethod
+    # def model_load_weights(self):
+    #     pass
+
+
 # define majority of class that is not going to change in
 # here (fit, hyperparams, ...), then leave rest of definition to the corresponding
 # class file

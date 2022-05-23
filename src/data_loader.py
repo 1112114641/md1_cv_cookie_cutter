@@ -13,6 +13,7 @@ import pandas as pd
 import tensorflow as tf
 from typing import Tuple  # , Callable, Dict, List
 from src.abstracts import DataLoaderABC
+from src.augmentations import Augment
 from sklearn.model_selection import train_test_split
 from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
 
@@ -38,6 +39,7 @@ class DataLoader(DataLoaderABC):
         super().__init__(config)
         self.labels = self.read_labels(self.config.labels_dir)
         self._train_test_split_labels()
+        self.augment = Augment(config)
 
     def data_generator(
         self,
