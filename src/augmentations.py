@@ -18,19 +18,30 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_addons as tfa
 from src.abstracts import AugmentABC
+import tensorflow_models.vision as tmv
 
 # import tensorflow_probability as tfp
-# import tensorflow_models.vision as tmv
 
 
 AVAILABLE_OPS = [
-    tf.image.adjust_brightness,  # https://www.tensorflow.org/api_docs/python/tf/image/random_brightness
+    tmv.augment.equalize,  # https://github.com/tensorflow/models/blob/master/official/vision/ops/augment.py
+    tmv.augment.solarize,
+    tmv.augment.solarize_add,
+    tmv.augment.color,
+    tmv.augment.contrast,
+    tmv.augment.brightness,
+    tmv.augment.posterize,
+    tmv.augment.wrapped_rotate,
+    tmv.augment.shear_x,
+    tmv.augment.shear_y,
+    tmv.augment.autocontrast,
+    tmv.augment.sharpness,
+    tmv.augment.equalize,
+    tmv.augment.invert,
     tf.image.flip_up_down,  # https://www.tensorflow.org/api_docs/python/tf/image/random_flip_up_down
     tf.image.flip_left_right,  # https://www.tensorflow.org/api_docs/python/tf/image/random_flip_left_right
     # random_central_crop,  # https://www.tensorflow.org/api_docs/python/tf/image/central_crop
-    tf.image.adjust_contrast,  # https://www.tensorflow.org/api_docs/python/tf/image/random_contrast
     tf.image.adjust_jpeg_quality,  # https://www.tensorflow.org/api_docs/python/tf/image/random_jpeg_quality
-    tf.image.adjust_saturation,  # https://www.tensorflow.org/api_docs/python/tf/image/random_saturation
     tfa.image.cutout,  # https://www.tensorflow.org/addons/api_docs/python/tfa/image/random_cutout
     # dropout_grid,  # inspired by https://arxiv.org/abs/2001.04086
     # mixup,  # https://www.tensorflow.org/api_docs/python/tf/image/random_flip_up_down
@@ -66,8 +77,9 @@ class AugmentClassic(AugmentABC):
             # apply_grid_mask(image, (*IMG_DIM,3))
         return image
 
-    def run_AugMix_augmentations(self, image: tf.Tensor) -> tf.Tensor:
-        """Following AugMix as introduced in https://arxiv.org/pdf/1912.02781.pdf.
+    @tf.function
+    def run_AugMix(self, image: tf.Tensor) -> tf.Tensor:
+        """Following AugMix. C.f. https://arxiv.org/pdf/1912.02781.pdf
 
         Args:
             image (tf.Tensor)
@@ -75,21 +87,25 @@ class AugmentClassic(AugmentABC):
         Returns:
             tf.Tensor: Augmented image
         """
-        (
-            strength,
-            width,
-            depth,
-            alpha,
-        ) = self.config.augment_params_AugMix.values()
-        dirichlet_sample = np.random.dirichlet([alpha] * width).astype(np.float32)
-        m = np.float32(np.random.beta(alpha, alpha))
-        mix = np.zeros_like(image).astype(np.float32)
+        strength, width, depth = self.config.augment_params_AugMix.values()
+        if self.config.random_seed:
+            np.random.set_state(self.config.random_seed)
+        rnd_sample = tf.random.gamma(shape=(width,), alpha=1, beta=25)
+        m = tf.random.gamma(shape=(1,), alpha=1, beta=25)
+        mix = tf.cast(tf.zeros_like(image), tf.float32)
         for i in range(width):
-            image_aug = image.copy()
+            image_aug = tf.identity(image)
             for _ in range(depth):
-                op = np.random.choice(self.augmentations)
-                image_aug = self.apply_op(image_aug, op, strength)
-                mix += dirichlet_sample[i] * image_aug
+                aug_number = tf.random.uniform(
+                    (1,),
+                    minval=0,
+                    maxval=len(self.augmentations),
+                    dtype=tf.int32,
+                    seed=self.config.random_seed,
+                )
+                op = self.augmentations[aug_number]
+                image_aug = op(image_aug, op, strength)
+                mix += rnd_sample[i] * image_aug
 
         mixed = (1 - m) * image + m * mix
         return mixed

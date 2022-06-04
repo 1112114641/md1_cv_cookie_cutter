@@ -181,7 +181,7 @@ class DataLoader(DataLoaderABC):
         # image = tf.image.rgb_to_grayscale(image)
         img_size = self.config.data_img_height
         image = tf.image.resize(image, size=[img_size, img_size])
-        image = tf.image.convert_image_dtype(image, tf.float32) / 255.0
+        image = tf.image.convert_image_dtype(image, tf.uint8) / 255.0  # tf.float32
         # image = tf.py_function(func=augment_images, inp=[image], Tout=tf.uint8)
         return image
 
