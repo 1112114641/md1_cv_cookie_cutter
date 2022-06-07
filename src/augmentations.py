@@ -22,13 +22,14 @@ import tensorflow_models.vision as tmv
 
 # import tensorflow_probability as tfp
 
-
+# Take all these functions, pass parameters to them, for tmv cast to right format again (float scaled?)
+# then pass them into augment classic
 AVAILABLE_OPS = [
     tmv.augment.equalize,  # https://github.com/tensorflow/models/blob/master/official/vision/ops/augment.py
-    tmv.augment.solarize,
-    tmv.augment.solarize_add,
-    tmv.augment.color,
-    tmv.augment.contrast,
+    tmv.augment.solarize,  # threshold [0,255]
+    tmv.augment.solarize_add,  # addition [-128,128] threshold [0,255]
+    tmv.augment.color,  # factor (0,1)
+    tmv.augment.contrast,  #
     tmv.augment.brightness,
     tmv.augment.posterize,
     tmv.augment.wrapped_rotate,
@@ -38,6 +39,7 @@ AVAILABLE_OPS = [
     tmv.augment.sharpness,
     tmv.augment.equalize,
     tmv.augment.invert,
+    tmv.augment.cutout,  # pad_size rectangle of 2*pad_size replaced, replace [0,255]
     tf.image.flip_up_down,  # https://www.tensorflow.org/api_docs/python/tf/image/random_flip_up_down
     tf.image.flip_left_right,  # https://www.tensorflow.org/api_docs/python/tf/image/random_flip_left_right
     # random_central_crop,  # https://www.tensorflow.org/api_docs/python/tf/image/central_crop
@@ -103,8 +105,8 @@ class AugmentClassic(AugmentABC):
                     dtype=tf.int32,
                     seed=self.config.random_seed,
                 )
-                op = self.augmentations[aug_number]
-                image_aug = op(image_aug, op, strength)
+                operation = self.augmentations[aug_number]
+                image_aug = operation(image_aug, strength)
                 mix += rnd_sample[i] * image_aug
 
         mixed = (1 - m) * image + m * mix
